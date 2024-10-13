@@ -144,12 +144,12 @@ def apply_gaussian(image):
     
     return Image.fromarray(blurred_image)
 
-def apply_sharpen(value):
-    global fillterd_image, edited_image
-    if not fillterd_image:
-        fillterd_image = edited_image.copy()
-    image_cv = np.array(fillterd_image) 
+def apply_adjustments(brightness, contrast, sharpen):
+    global filtered_image, original_image
+    image_cv = np.array(original_image.copy()) 
     image_cv = cv2.cvtColor(image_cv, cv2.COLOR_RGB2BGR)
+    final_img = image_cv.copy()
+
     
     kernels = [
             np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]]),  
@@ -162,13 +162,37 @@ def apply_sharpen(value):
             np.array([[-4, -4, -4], [-4, 33, -4], [-4, -4, -4]]), 
             np.array([[-4, -5, -4], [-5, 37, -5], [-4, -5, -4]])  
         ]
-    index = int(value)
-    sharpened_img = cv2.filter2D(image_cv, -1, kernels[index]) 
-    sharpened_img = cv2.cvtColor(sharpened_img, cv2.COLOR_BGR2RGB)
-    sharpened_img = Image.fromarray(sharpened_img)
-    
-    display_image(sharpened_img)
+    index = int(sharpen)
 
+    # Apply brightness and contrast adjustments
+    brightness = int((brightness - 50) * 2.55)  # Scale brightness to range [-255, 255]
+    contrast = int((contrast - 50) * 2.55)  # Scale contrast to range [-255, 255]
+    
+    if brightness != 0:
+        if brightness > 0:
+            shadow = brightness
+            highlight = 255
+        else:
+            shadow = 0
+            highlight = 255 + brightness
+        alpha_b = (highlight - shadow) / 255
+        gamma_b = shadow
+        final_img = cv2.addWeighted(final_img, alpha_b, final_img, 0, gamma_b)
+    
+    if contrast != 0:
+        f = 131 * (contrast + 127) / (127 * (131 - contrast))
+        alpha_c = f
+        gamma_c = 127 * (1 - f)
+        final_img = cv2.addWeighted(final_img, alpha_c, final_img, 0, gamma_c)
+    
+
+    final_img = cv2.filter2D(final_img, -1, kernels[index]) 
+    
+    # Convert back to RGB
+    adjusted_img = cv2.cvtColor(final_img, cv2.COLOR_BGR2RGB)
+    adjusted_img = Image.fromarray(adjusted_img)
+    
+    display_image(adjusted_img)
 
 def compare_images():
     compare_window = Toplevel(root)
@@ -231,13 +255,39 @@ canvas.grid(row=0, column=1, sticky="nswe")
 image_button = ctk.CTkButton(left_frame, text="Add Image", command=add_image)
 image_button.pack(pady=15)
 
+brightness_label = ctk.CTkLabel(left_frame, text="Adjust Brightness")
+brightness_label.pack()
+brightness_value_label = ctk.CTkLabel(left_frame, text="50")
+brightness_value_label.pack()
+def update_brightness_value(value):
+    brightness_value_label.configure(text=f"{int(float(value))}")
+    apply_adjustments(brightness=value, contrast=contrast_slider.get() , sharpen=sharpen_slider.get())
+
+
+brightness_slider = ctk.CTkSlider(left_frame, from_=0, to=100, number_of_steps=100, command=update_brightness_value)
+brightness_slider.set(50)
+brightness_slider.pack(pady=15)
+
+
+contrast_label = ctk.CTkLabel(left_frame, text="Adjust Contrast")
+contrast_label.pack()
+contrast_value_label = ctk.CTkLabel(left_frame, text="50")
+contrast_value_label.pack()
+def update_contrast_value(value):
+    contrast_value_label.configure(text=f"{int(float(value))}")
+    apply_adjustments(brightness=brightness_slider.get(), contrast=value, sharpen=sharpen_slider.get())
+
+contrast_slider = ctk.CTkSlider(left_frame, from_=0, to=100, number_of_steps=100, command=update_contrast_value)
+contrast_slider.set(50)  # Set default value to 50 (no change)
+contrast_slider.pack(pady=15)
+
 sharpen_label = ctk.CTkLabel(left_frame, text="Adjust Sharpen")
 sharpen_label.pack()
 sharpen_value_label = ctk.CTkLabel(left_frame, text="0")
 sharpen_value_label.pack()
 def update_sharpen_value(value):
     sharpen_value_label.configure(text=f"{int(float(value))}")
-    apply_sharpen(value)
+    apply_adjustments(brightness=brightness_slider.get(), contrast=contrast_slider.get(), sharpen=value)
 
 sharpen_slider = ctk.CTkSlider(left_frame, from_=0, to=9, number_of_steps=9, command=update_sharpen_value)
 sharpen_slider.set(0) 
