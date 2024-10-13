@@ -151,12 +151,19 @@ def apply_sharpen(value):
     image_cv = np.array(fillterd_image) 
     image_cv = cv2.cvtColor(image_cv, cv2.COLOR_RGB2BGR)
     
-    sigma_s = float(value)  * 0.1
-    sigma_r = 0.15  
-    
-    # Apply detail enhancement
-    sharpened_img = cv2.detailEnhance(image_cv, sigma_s=sigma_s, sigma_r=sigma_r)
-    # Convert back to PIL Image
+    kernels = [
+            np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]]),  
+            np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]]),  
+            np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]]),  
+            np.array([[-1, -2, -1], [-2, 13, -2], [-1, -2, -1]]), 
+            np.array([[-2, -2, -2], [-2, 17, -2], [-2, -2, -2]]),  
+            np.array([[-2, -3, -2], [-3, 21, -3], [-2, -3, -2]]), 
+            np.array([[-3, -3, -3], [-3, 25, -3], [-3, -3, -3]]),  
+            np.array([[-4, -4, -4], [-4, 33, -4], [-4, -4, -4]]), 
+            np.array([[-4, -5, -4], [-5, 37, -5], [-4, -5, -4]])  
+        ]
+    index = int(value)
+    sharpened_img = cv2.filter2D(image_cv, -1, kernels[index]) 
     sharpened_img = cv2.cvtColor(sharpened_img, cv2.COLOR_BGR2RGB)
     sharpened_img = Image.fromarray(sharpened_img)
     
@@ -226,18 +233,18 @@ image_button.pack(pady=15)
 
 sharpen_label = ctk.CTkLabel(left_frame, text="Adjust Sharpen")
 sharpen_label.pack()
-
-# Label to display the current value of the slider
 sharpen_value_label = ctk.CTkLabel(left_frame, text="0")
 sharpen_value_label.pack()
-
 def update_sharpen_value(value):
     sharpen_value_label.configure(text=f"{int(float(value))}")
     apply_sharpen(value)
 
-sharpen_slider = ctk.CTkSlider(left_frame, from_=0, to=100, number_of_steps=100, command=update_sharpen_value)
+sharpen_slider = ctk.CTkSlider(left_frame, from_=0, to=9, number_of_steps=9, command=update_sharpen_value)
 sharpen_slider.set(0) 
 sharpen_slider.pack(pady=15)
+
+
+
 
 filter_label = ctk.CTkLabel(left_frame, text="Select Filter")
 filter_label.pack()
