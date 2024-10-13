@@ -5,20 +5,21 @@ from tkinter import ttk
 from PIL import ExifTags
 import cv2
 import numpy as np
-
+import threading
 root = ctk.CTk()
 root.geometry("900x600")
 root.title("Image Drawing Tool")
 
-pen_color = "black"
-pen_size = 5
 file_path = ""
 canvas_width = 897
 canvas_height = 746
 original_image = None
 edited_image = None
-fillterd_image = None
+filtered_image = None
 scale_factor = 1.0
+denoise_timer = None
+denoised_image = None
+denoised_value = 0
 
 def add_image():
     global file_path, original_image, edited_image, scale_factor
@@ -51,12 +52,11 @@ def correct_orientation(image):
 
 def display_image(image):
     image = correct_orientation(image)
-    global edited_image, filtered_image
+    global edited_image
     image.thumbnail((canvas_width, canvas_height))
     # Get image to compare (normal size)
     resized_image_normal = image.resize(image.size, Image.LANCZOS)
     edited_image = resized_image_normal
-    filtered_image = resized_image_normal
 
     # Display image (zoomed)
     width, height = image.size
@@ -99,10 +99,10 @@ def apply_filter(filter):
             image = apply_canny(image)
         elif filter == "Gaussian":
             image = apply_gaussian(image)
-        global fillterd_image, edited_image
-        fillterd_image = image.copy()
+        global filtered_image, edited_image
+        filtered_image = image.copy()
         edited_image = image.copy()
-        display_image(image)
+        apply_adjustments()
 
 def apply_sobel(image):
     image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
@@ -144,13 +144,41 @@ def apply_gaussian(image):
     
     return Image.fromarray(blurred_image)
 
-def apply_adjustments(brightness, contrast, sharpen):
+def apply_adjustments(brightness=None, contrast=None, sharpen=None, denoise=None):
+    if brightness is None:
+        brightness = brightness_slider.get()
+    if contrast is None:
+        contrast = contrast_slider.get()
+    if sharpen is None:
+        sharpen = sharpen_slider.get()
+    if denoise is None:
+        denoise = denoise_slider.get()
     global filtered_image, original_image
-    image_cv = np.array(original_image.copy()) 
+    image_cv = np.array(original_image.copy()) if filtered_image is None else np.array(filtered_image.copy())
     image_cv = cv2.cvtColor(image_cv, cv2.COLOR_RGB2BGR)
     final_img = image_cv.copy()
 
     
+    
+    if denoise > 0:
+        def update_image(denoised_img):
+            apply_adjustments_continued(denoised_img, brightness, contrast, sharpen)
+        
+        threading.Thread(target=denoise_image, args=(final_img, denoise, update_image)).start()
+    else:
+        apply_adjustments_continued(final_img, brightness, contrast, sharpen)
+
+def denoise_image(final_img, denoise_level, callback):
+    global denoised_image, denoised_value
+    if denoised_image is None:
+        denoised_image = cv2.fastNlMeansDenoisingColored(final_img, None, denoise_level, denoise_level, 7, 21)
+        denoised_value = denoise_slider.get()
+    elif denoised_value != denoise_slider.get():
+        denoised_image = cv2.fastNlMeansDenoisingColored(final_img, None, denoise_level, denoise_level, 7, 21)
+        denoised_value = denoise_slider.get()
+    callback(denoised_image)
+
+def apply_adjustments_continued(final_img, brightness, contrast, sharpen):
     kernels = [
             np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]]),  
             np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]]),  
@@ -163,10 +191,10 @@ def apply_adjustments(brightness, contrast, sharpen):
             np.array([[-4, -5, -4], [-5, 37, -5], [-4, -5, -4]])  
         ]
     index = int(sharpen)
+    final_img = cv2.filter2D(final_img, -1, kernels[index]) 
 
-    # Apply brightness and contrast adjustments
-    brightness = int((brightness - 50) * 2.55)  # Scale brightness to range [-255, 255]
-    contrast = int((contrast - 50) * 2.55)  # Scale contrast to range [-255, 255]
+    brightness = int((brightness - 50) * 2.55) 
+    contrast = int((contrast - 50) * 2.55)  
     
     if brightness != 0:
         if brightness > 0:
@@ -186,12 +214,9 @@ def apply_adjustments(brightness, contrast, sharpen):
         final_img = cv2.addWeighted(final_img, alpha_c, final_img, 0, gamma_c)
     
 
-    final_img = cv2.filter2D(final_img, -1, kernels[index]) 
-    
-    # Convert back to RGB
+
     adjusted_img = cv2.cvtColor(final_img, cv2.COLOR_BGR2RGB)
     adjusted_img = Image.fromarray(adjusted_img)
-    
     display_image(adjusted_img)
 
 def compare_images():
@@ -235,7 +260,7 @@ def zoom(event):
         scale_factor *= 1.1
     else:
         scale_factor /= 1.1
-    display_image(original_image)
+    apply_adjustments()
 
 def pan_start(event):
     canvas.scan_mark(event.x, event.y)
@@ -261,7 +286,7 @@ brightness_value_label = ctk.CTkLabel(left_frame, text="50")
 brightness_value_label.pack()
 def update_brightness_value(value):
     brightness_value_label.configure(text=f"{int(float(value))}")
-    apply_adjustments(brightness=value, contrast=contrast_slider.get() , sharpen=sharpen_slider.get())
+    apply_adjustments()
 
 
 brightness_slider = ctk.CTkSlider(left_frame, from_=0, to=100, number_of_steps=100, command=update_brightness_value)
@@ -275,7 +300,7 @@ contrast_value_label = ctk.CTkLabel(left_frame, text="50")
 contrast_value_label.pack()
 def update_contrast_value(value):
     contrast_value_label.configure(text=f"{int(float(value))}")
-    apply_adjustments(brightness=brightness_slider.get(), contrast=value, sharpen=sharpen_slider.get())
+    apply_adjustments()
 
 contrast_slider = ctk.CTkSlider(left_frame, from_=0, to=100, number_of_steps=100, command=update_contrast_value)
 contrast_slider.set(50)  # Set default value to 50 (no change)
@@ -287,11 +312,29 @@ sharpen_value_label = ctk.CTkLabel(left_frame, text="0")
 sharpen_value_label.pack()
 def update_sharpen_value(value):
     sharpen_value_label.configure(text=f"{int(float(value))}")
-    apply_adjustments(brightness=brightness_slider.get(), contrast=contrast_slider.get(), sharpen=value)
+    apply_adjustments()
 
-sharpen_slider = ctk.CTkSlider(left_frame, from_=0, to=9, number_of_steps=9, command=update_sharpen_value)
+sharpen_slider = ctk.CTkSlider(left_frame, from_=0, to=8, number_of_steps=9, command=update_sharpen_value)
 sharpen_slider.set(0) 
 sharpen_slider.pack(pady=15)
+
+denoise_label = ctk.CTkLabel(left_frame, text="Adjust Denoising/Smoothing")
+denoise_label.pack()
+denoise_value_label = ctk.CTkLabel(left_frame, text="0")
+denoise_value_label.pack()
+def update_denoise_value(value):
+    global denoise_timer
+    denoise_value_label.configure(text=f"{int(float(value))}")
+
+    if denoise_timer is not None:
+        denoise_timer.cancel()
+
+    denoise_timer = threading.Timer(0.1, lambda: apply_adjustments())
+    denoise_timer.start()
+
+denoise_slider = ctk.CTkSlider(left_frame, from_=0, to=20, number_of_steps=18, command=update_denoise_value)
+denoise_slider.set(0)  # Set default value to 0
+denoise_slider.pack(pady=15)
 
 
 
